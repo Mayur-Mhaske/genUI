@@ -29,8 +29,10 @@ const Navbar = () => {
   return (
     <>
       <div className="nav flex items-center text-2xl font-bold justify-between px-5 h-[90px] border-b border-gray-800">
-        <div className="logo">
-          <h3 className="text-[25px] font-700 sp-text">GenUI</h3>
+        <div className="logo text-[#1f2937]">
+          <h3 className="text-[25px] text-purple-500 font-700 sp-text">
+            GenUI
+          </h3>
         </div>
         <div className="icons flex items-center gap-[15px]">
           {/* Toggle Theme Button */}
