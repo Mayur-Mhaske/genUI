@@ -10,12 +10,10 @@ import { ImNewTab } from "react-icons/im";
 import { FiRefreshCcw } from "react-icons/fi";
 import { GoogleGenAI } from "@google/genai";
 import ClipLoader from "react-spinners/ClipLoader";
-
 import { toast } from "react-toastify";
 
 const Home = () => {
   const options = [
-    // Basic
     { value: "html-css", label: "HTML + CSS" },
     { value: "html-tailwind", label: "HTML + Tailwind CSS" },
     { value: "html-bootstrap", label: "HTML + Bootstrap" },
@@ -32,76 +30,119 @@ const Home = () => {
   const [isNewTabOpen, setIsNewTabOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Extract code safely
+  // Extract code safely from markdown
   function extractCode(response) {
     const match = response.match(/```(?:\w+)?\n?([\s\S]*?)```/);
     return match ? match[1].trim() : response.trim();
   }
 
-  // The client gets the API key from the environment variable `GEMINI_API_KEY`.
+  // Utility: get correct text from Gemini response
+  function getTextFromResponse(res) {
+    try {
+      return (
+        res?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        res?.text ||
+        JSON.stringify(res)
+      );
+    } catch {
+      return "";
+    }
+  }
+
+  // Initialize GoogleGenAI client
   const ai = new GoogleGenAI({
-    apiKey: "AIzaSyBF_OTK6r2xOciwTw5Qx743b5ZL5nSLOqw",
+    apiKey: "AIzaSyB1SJLA3uqNM28RYDJ_DpsjuU9TdG9Y1qU",
   });
 
-  // ✅ Generate code
+  // ✅ Generate code with retry + fallback
   async function getResponse() {
     if (!prompt.trim())
       return toast.error("Please describe your component first");
+    if (!frameWork) return toast.error("Please select a framework");
+
+    setLoading(true);
+
+    const payload = {
+      model: "gemini-2.5-flash",
+      contents: `
+You are an experienced programmer with expertise in web development and UI/UX design.
+Generate a UI component for: ${prompt}
+Framework: ${frameWork.value}
+Requirements:
+- Clean, structured, easy-to-understand code
+- Modern, animated, responsive UI design
+- Only return code in a Markdown code block
+- Entire component in a single HTML file
+      `,
+    };
 
     try {
-      setLoading(true);
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `
-     You are an experienced programmer with expertise in web development and UI/UX design. You create modern, animated, and fully responsive UI components. You are highly skilled in HTML, CSS, Tailwind CSS, Bootstrap, JavaScript, React, Next.js, Vue.js, Angular, and more.
+      // Retry loop
+      let response;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          response = await ai.models.generateContent(payload);
+          break; // Success
+        } catch (err) {
+          if (err.error?.code === 503) {
+            console.warn("503 — retry attempt:", attempt);
+            await new Promise((res) => setTimeout(res, attempt * 1500));
+            continue;
+          }
+          throw err;
+        }
+      }
 
-Now, generate a UI component for: ${prompt}  
-Framework to use: ${frameWork.value}  
+      if (!response) throw new Error("Gemini failed after retries");
 
-Requirements:  
-- The code must be clean, well-structured, and easy to understand.  
-- Optimize for SEO where applicable.  
-- Focus on creating a modern, animated, and responsive UI design.  
-- Include high-quality hover effects, shadows, animations, colors, and typography.  
-- Return ONLY the code, formatted properly in **Markdown fenced code blocks**.  
-- Do NOT include explanations, text, comments, or anything else besides the code.  
-- And give the whole code in a single HTML file.
-      `,
-      });
-
-      setCode(extractCode(response.text));
+      const text = getTextFromResponse(response);
+      setCode(extractCode(text));
       setOutputScreen(true);
-    } catch (error) {
-      console.error(error);
-      toast.error("Something went wrong while generating code");
+    } catch (err) {
+      console.error(err);
+      // Fallback to 1.5 model if overloaded
+      if (err.error?.code === 503) {
+        try {
+          const fallback = await ai.models.generateContent({
+            ...payload,
+            model: "gemini-1.5-flash",
+          });
+          const text = getTextFromResponse(fallback);
+          setCode(extractCode(text));
+          setOutputScreen(true);
+          toast.info("Fallback model used (1.5-flash)");
+        } catch (e) {
+          toast.error("AI servers overloaded — try again later");
+        }
+      } else {
+        toast.error("Something went wrong while generating code");
+      }
     } finally {
       setLoading(false);
     }
   }
-  // ✅ Copy Code
+
+  // ✅ Copy code
   const copyCode = async () => {
     if (!code.trim()) return toast.error("No code to copy");
     try {
       await navigator.clipboard.writeText(code);
       toast.success("Code copied to clipboard");
     } catch (err) {
-      console.error("Failed to copy: ", err);
+      console.error("Failed to copy:", err);
       toast.error("Failed to copy");
     }
   };
 
-  // ✅ Download Code
+  // ✅ Download code
   const downnloadFile = () => {
     if (!code.trim()) return toast.error("No code to download");
-
     const fileName = "GenUI-Code.html";
     const blob = new Blob([code], { type: "text/plain" });
-    let url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url;
+    link.href = URL.createObjectURL(blob);
     link.download = fileName;
     link.click();
-    URL.revokeObjectURL(url);
     toast.success("File downloaded");
   };
 
@@ -123,7 +164,6 @@ Requirements:
           <Select
             className="mt-2"
             options={options}
-            // defaultValue={options[0]}
             value={frameWork}
             styles={{
               control: (base) => ({
@@ -134,18 +174,10 @@ Requirements:
                 boxShadow: "none",
                 "&:hover": { borderColor: "#555" },
               }),
-              menu: (base) => ({
-                ...base,
-                backgroundColor: "#111",
-                color: "#fff",
-              }),
+              menu: (base) => ({ ...base, backgroundColor: "#111", color: "#fff" }),
               option: (base, state) => ({
                 ...base,
-                backgroundColor: state.isSelected
-                  ? "#333"
-                  : state.isFocused
-                  ? "#222"
-                  : "#111",
+                backgroundColor: state.isSelected ? "#333" : state.isFocused ? "#222" : "#111",
                 color: "#fff",
                 "&:active": { backgroundColor: "#444" },
               }),
@@ -155,7 +187,6 @@ Requirements:
             }}
             onChange={(e) => setFrameWork(e)}
           />
-          {console.log(frameWork)}
 
           <p className="text-[15px] font-[700] mt-5">Describe your component</p>
           <textarea
@@ -179,6 +210,7 @@ Requirements:
           </div>
         </div>
 
+        {/* Right Section */}
         <div className="relative mt-2 w-full h-[80vh] bg-[#141319] rounded-xl overflow-hidden">
           {!outputScreen ? (
             <div className="w-full h-full flex items-center flex-col justify-center">
@@ -197,9 +229,7 @@ Requirements:
                 <button
                   onClick={() => setTab(1)}
                   className={`w-1/2 py-2 rounded-lg transition-all ${
-                    tab === 1
-                      ? "bg-purple-600 text-white"
-                      : "bg-zinc-800 text-gray-300"
+                    tab === 1 ? "bg-purple-600 text-white" : "bg-zinc-800 text-gray-300"
                   }`}
                 >
                   Code
@@ -207,9 +237,7 @@ Requirements:
                 <button
                   onClick={() => setTab(2)}
                   className={`w-1/2 py-2 rounded-lg transition-all ${
-                    tab === 2
-                      ? "bg-purple-600 text-white"
-                      : "bg-zinc-800 text-gray-300"
+                    tab === 2 ? "bg-purple-600 text-white" : "bg-zinc-800 text-gray-300"
                   }`}
                 >
                   Preview
@@ -257,12 +285,7 @@ Requirements:
               {/* Editor / Preview */}
               <div className="h-full">
                 {tab === 1 ? (
-                  <Editor
-                    value={code}
-                    height="100%"
-                    theme="vs-dark"
-                    language="html"
-                  />
+                  <Editor value={code} height="100%" theme="vs-dark" language="html" />
                 ) : (
                   <iframe
                     key={refreshKey}
@@ -276,7 +299,7 @@ Requirements:
         </div>
       </div>
 
-      {/* ✅ Fullscreen Preview Overlay */}
+      {/* Fullscreen Preview Overlay */}
       {isNewTabOpen && (
         <div className="absolute inset-0 bg-white w-screen h-screen overflow-auto">
           <div className="text-black w-full h-[60px] flex items-center justify-between px-5 bg-gray-100">
@@ -288,10 +311,7 @@ Requirements:
               <IoCloseSharp />
             </button>
           </div>
-          <iframe
-            srcDoc={code}
-            className="w-full h-[calc(100vh-60px)]"
-          ></iframe>
+          <iframe srcDoc={code} className="w-full h-[calc(100vh-60px)]"></iframe>
         </div>
       )}
     </>
