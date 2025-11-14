@@ -40,7 +40,7 @@ const Home = () => {
 
   // The client gets the API key from the environment variable `GEMINI_API_KEY`.
   const ai = new GoogleGenAI({
-    apiKey: "AIzaSyCFQQaTUhKw28tWIjOa1lU_0-r13z_43jM",
+    apiKey: "AIzaSyBF_OTK6r2xOciwTw5Qx743b5ZL5nSLOqw",
   });
 
   // ✅ Generate code
